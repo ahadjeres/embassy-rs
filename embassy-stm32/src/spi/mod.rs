@@ -56,7 +56,9 @@ pub struct Config {
     /// If you  are unsure, you probably don't need this.
     pub miso_pull: Pull,
     /// signal rise/fall speed (slew rate) - defaults to `Medium`.
-    /// Increase for high SPI speeds. Change to `Low` to reduce ringing.
+    /// Set `true` to configure SPI as a slave, `false` to configure it as a master.
+    /// Defaults to `false` (master).
+    pub is_slave: bool,
     pub rise_fall_speed: Speed,
 }
 
@@ -67,6 +69,7 @@ impl Default for Config {
             bit_order: BitOrder::MsbFirst,
             frequency: Hertz(1_000_000),
             miso_pull: Pull::None,
+            is_slave: false,
             rise_fall_speed: Speed::VeryHigh,
         }
     }
@@ -120,6 +123,7 @@ pub struct Spi<'d, M: PeriMode> {
     miso: Option<PeripheralRef<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
+    is_slave: bool,
     _phantom: PhantomData<M>,
     current_word_size: word_impl::Config,
     rise_fall_speed: Speed,
@@ -143,6 +147,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             miso,
             tx_dma,
             rx_dma,
+            is_slave: config.is_slave,
             current_word_size: <u8 as SealedWord>::CONFIG,
             _phantom: PhantomData,
             rise_fall_speed: config.rise_fall_speed,
@@ -169,12 +174,16 @@ impl<'d, M: PeriMode> Spi<'d, M> {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
-                w.set_mstr(vals::Mstr::MASTER);
+                w.set_mstr(if config.is_slave {
+                    vals::Mstr::SLAVE
+                } else {
+                    vals::Mstr::MASTER
+                });
                 w.set_br(br);
                 w.set_spe(true);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssi(true);
-                w.set_ssm(true);
+                w.set_ssi(!config.is_slave);
+                w.set_ssm(!config.is_slave);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
                 // we're doing "fake rxonly", by actually writing one
@@ -196,11 +205,15 @@ impl<'d, M: PeriMode> Spi<'d, M> {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
-                w.set_mstr(vals::Mstr::MASTER);
+                w.set_mstr(if config.is_slave {
+                    vals::Mstr::SLAVE
+                } else {
+                    vals::Mstr::MASTER
+                });
                 w.set_br(br);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssi(true);
-                w.set_ssm(true);
+                w.set_ssi(!config.is_slave);
+                w.set_ssm(!config.is_slave);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
                 w.set_spe(true);
@@ -215,8 +228,12 @@ impl<'d, M: PeriMode> Spi<'d, M> {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssm(true);
-                w.set_master(vals::Master::MASTER);
+                w.set_ssm(!config.is_slave);
+                w.set_master(if config.is_slave {
+                    vals::Master::SLAVE
+                } else {
+                    vals::Master::MASTER
+                });
                 w.set_comm(vals::Comm::FULL_DUPLEX);
                 w.set_ssom(vals::Ssom::ASSERTED);
                 w.set_midi(0);
@@ -234,7 +251,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
                 w.set_tsize(0);
             });
             regs.cr1().modify(|w| {
-                w.set_ssi(false);
+                w.set_ssi(!config.is_slave);
                 w.set_spe(true);
             });
         }
@@ -325,6 +342,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             bit_order,
             frequency,
             miso_pull,
+            is_slave: self.is_slave,
             rise_fall_speed: self.rise_fall_speed,
         }
     }
